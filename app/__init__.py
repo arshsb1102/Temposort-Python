@@ -1,0 +1,1 @@
+"""TempoSort FastAPI learning app."""
