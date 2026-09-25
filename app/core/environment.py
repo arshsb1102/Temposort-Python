@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -12,7 +16,7 @@ class Settings:
     jwt_secret: str = os.getenv("JWT_SECRET", "tempo-sort-dev-secret-key-2026-!@#123456")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
     access_token_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
-    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./temposort.db")
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/temposort")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
     api_base_url: str = os.getenv("API_BASE_URL", "http://localhost:8000")
     mail_provider: str = os.getenv("MAIL_PROVIDER", "console")
