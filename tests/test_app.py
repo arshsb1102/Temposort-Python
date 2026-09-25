@@ -6,7 +6,26 @@ from app.db import store
 from app.main import app
 from app.services.email_service import email_service
 
+try:
+    from app.api.v1 import auth as v1_auth
+    from app.api.v1 import tasks as v1_tasks
+    from app.api.v1 import reminders as v1_reminders
+except ImportError as exc:  # pragma: no cover - intentional regression guard
+    v1_auth = None
+    v1_tasks = None
+    v1_reminders = None
+    import_error = exc
+else:
+    import_error = None
+
 client = TestClient(app)
+
+
+def test_versioned_v1_modules_are_available():
+    assert import_error is None
+    assert v1_auth is not None
+    assert v1_tasks is not None
+    assert v1_reminders is not None
 
 
 def setup_function() -> None:

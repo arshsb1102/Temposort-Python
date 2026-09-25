@@ -57,14 +57,25 @@ The app is split into small layers:
 Temposort-Python/
 ├── app/
 │   ├── api/
-│   │   └── routes/
+│   ├── api/
+│   │   └── v1/
 │   │       ├── auth.py
 │   │       ├── health.py
 │   │       ├── reminders.py
 │   │       └── tasks.py
 │   ├── core/
+│   │   ├── config.py
 │   │   ├── environment.py
+│   │   ├── logging.py
 │   │   └── security.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   └── repositories/
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   ├── auth.py
+│   │   ├── reminders.py
+│   │   └── tasks.py
 │   ├── services/
 │   │   ├── auth_service.py
 │   │   ├── email_service.py
@@ -73,12 +84,10 @@ Temposort-Python/
 │   │   └── task_service.py
 │   ├── storage/
 │   │   ├── postgres_store.py
-│   │   ├── sqlite_store.py
 │   │   └── __init__.py
 │   ├── __init__.py
-│   ├── db.py
 │   ├── main.py
-│   └── schemas.py
+│   └── workers/
 ├── tests/
 │   └── test_app.py
 ├── .env
@@ -125,14 +134,14 @@ Important:
 
 ## Storage layer
 
-The project supports a storage abstraction through the store object in `app/db.py`.
+The project uses a single Postgres-backed storage abstraction through `app.db.store`.
 
 Current behavior:
 
-- if `DATABASE_URL` starts with `sqlite`, the app uses `SQLiteStore`
-- otherwise it uses `PostgresStore`
+- `DATABASE_URL` points to the Postgres instance used by the app
+- the app uses `PostgresStore` for users, tasks, reminders, and verification tokens
 
-This makes the code usable in local development and production-like environments without changing route logic.
+This keeps the persistence layer consistent across local and production environments without an unnecessary SQLite fallback.
 
 ## Data model
 
