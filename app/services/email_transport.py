@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import smtplib
 from email.message import EmailMessage
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 import httpx
 
 from app.core.environment import settings
+
+logger = logging.getLogger(__name__)
 
 
 def send_via_smtp(to_email: str, subject: str, html_body: str) -> dict[str, Any]:
@@ -22,14 +25,24 @@ def send_via_smtp(to_email: str, subject: str, html_body: str) -> dict[str, Any]
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
-            if settings.enable_ssl:
+            server.ehlo()
+            if settings.enable_ssl or settings.smtp_port == 587:
                 server.starttls()
+                server.ehlo()
             if settings.smtp_username and settings.smtp_password:
                 server.login(settings.smtp_username, settings.smtp_password.get_secret_value())
             server.send_message(message)
         return {"provider": "smtp", "to": to_email, "subject": subject, "status": "sent"}
-    except (OSError, smtplib.SMTPException, TimeoutError):
-        return {"provider": "smtp", "to": to_email, "subject": subject, "status": "queued", "message": "SMTP delivery failed; message queued for retry"}
+    except Exception as exc:  # pragma: no cover - exercised via targeted SMTP regression test
+        logger.exception("SMTP delivery failed")
+        return {
+            "provider": "smtp",
+            "to": to_email,
+            "subject": subject,
+            "status": "failed",
+            "error": str(exc),
+            "message": "SMTP delivery failed; message was not sent",
+        }
 
 
 def send_via_resend(to_email: str, subject: str, html_body: str) -> dict[str, Any]:
@@ -54,8 +67,22 @@ def send_via_resend(to_email: str, subject: str, html_body: str) -> dict[str, An
         )
         response.raise_for_status()
         return {"provider": "resend", "to": to_email, "subject": subject, "status": "sent", "payload": response.json()}
-    except httpx.HTTPError:
-        return {"provider": "resend", "to": to_email, "subject": subject, "status": "queued", "message": "Resend delivery failed; message queued for retry"}
+    except httpx.HTTPError as exc:
+        body = ""
+        try:
+            body = response.text
+        except Exception:  # pragma: no cover - defensive fallback
+            body = ""
+        logger.exception("Resend delivery failed")
+        return {
+            "provider": "resend",
+            "to": to_email,
+            "subject": subject,
+            "status": "failed",
+            "error": str(exc),
+            "api_response": body,
+            "message": "Resend delivery failed; message was not sent",
+        }
 
 
 def send_email_message(to_email: str, subject: str, html_body: str) -> dict[str, Any]:

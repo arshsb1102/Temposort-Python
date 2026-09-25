@@ -1,3 +1,4 @@
+import smtplib
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -50,7 +51,10 @@ def test_registration_sends_verification_email_and_login_requires_verification()
         },
     )
     assert register_response.status_code == 201
-    assert "verification_required" in register_response.json()
+    response_json = register_response.json()
+    assert "verification_required" in response_json
+    assert "email_delivery" in response_json
+    assert response_json["user"]["email"] == "alice@example.com"
 
     verification_email = email_service.sent_messages[-1]
     assert verification_email["to"] == "alice@example.com"
@@ -260,3 +264,38 @@ def test_user_can_delete_their_account():
         },
     )
     assert follow_up_login.status_code == 401
+
+
+def test_smtp_failures_are_exposed_in_result(monkeypatch):
+    from app.services import email_transport
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def ehlo(self, *args, **kwargs):
+            return None
+
+        def starttls(self):
+            raise smtplib.SMTPAuthenticationError(535, b'bad credentials')
+
+        def login(self, *args, **kwargs):
+            raise smtplib.SMTPAuthenticationError(535, b'bad credentials')
+
+        def send_message(self, *args, **kwargs):
+            raise smtplib.SMTPAuthenticationError(535, b'bad credentials')
+
+    monkeypatch.setattr(email_transport, "settings", type("S", (), {"smtp_host": "smtp.gmail.com", "smtp_port": 587, "smtp_username": "user@example.com", "smtp_password": type("P", (), {"get_secret_value": lambda self: "pw"})(), "smtp_from_name": "TempoSort", "smtp_from_email": "no-reply@example.com", "enable_ssl": True, "mail_provider": "smtp"})())
+    monkeypatch.setattr(email_transport.smtplib, "SMTP", FakeSMTP)
+
+    result = email_transport.send_via_smtp("to@example.com", "Subject", "<p>Hi</p>")
+
+    assert result["status"] == "failed"
+    assert "error" in result
+    assert "bad credentials" in result["error"].lower()

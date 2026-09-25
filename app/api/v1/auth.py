@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.security import get_current_user_id
@@ -8,7 +10,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register_user(payload: UserRegister) -> dict[str, str | dict[str, str] | bool]:
+def register_user(payload: UserRegister) -> dict[str, Any]:
     try:
         user = auth_service.register_user(payload)
     except HTTPException:
@@ -20,6 +22,7 @@ def register_user(payload: UserRegister) -> dict[str, str | dict[str, str] | boo
         "message": "User registered successfully. Please verify your email to log in.",
         "verification_required": True,
         "user": {"id": user["id"], "name": user["name"], "email": user["email"]},
+        "email_delivery": user.get("email_delivery", {}),
     }
 
 
@@ -34,11 +37,12 @@ def verify_email(token: str = Query(..., description="Verification token from th
 
 
 @router.post("/resend-verification")
-def resend_verification(payload: dict[str, str]) -> dict[str, str]:
+def resend_verification(payload: dict[str, str]) -> dict[str, Any]:
     email = payload.get("email")
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required.")
-    return auth_service.resend_verification_email(email)
+    result = auth_service.resend_verification_email(email)
+    return result
 
 
 @router.post("/delete-user")

@@ -26,13 +26,14 @@ class AuthService:
         )
         token = str(uuid4())
         self.repo.create_verification_token(created_user["email"], token)
-        email_service.send_verification_email(created_user["email"], created_user["name"], token)
+        delivery = email_service.send_verification_email(created_user["email"], created_user["name"], token)
 
         return {
             "id": created_user["id"],
             "name": created_user["name"],
             "email": created_user["email"],
             "verification_required": True,
+            "email_delivery": delivery.get("delivery", {}),
         }
 
     def login_user(self, payload: UserLogin) -> TokenResponse:
@@ -72,8 +73,11 @@ class AuthService:
 
         token = str(uuid4())
         self.repo.create_verification_token(user["email"], token)
-        email_service.send_verification_email(user["email"], user["name"], token)
-        return {"message": "Verification email resent successfully."}
+        delivery = email_service.send_verification_email(user["email"], user["name"], token)
+        return {
+            "message": "Verification email resent successfully.",
+            "email_delivery": delivery.get("delivery", {}),
+        }
 
     def delete_user(self, email: str, password: str) -> dict[str, bool]:
         user = self.repo.get_user_by_email(email)
