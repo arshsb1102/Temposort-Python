@@ -45,7 +45,7 @@ class AuthService:
                 detail="Please verify your email before logging in.",
             )
 
-        token = create_access_token(str(user["id"]))
+        token = create_access_token(str(user["id"]), email=user["email"], name=user["name"])
         return TokenResponse(access_token=token, token_type="bearer")
 
     def verify_email(self, token: str) -> VerificationStatus:
@@ -74,6 +74,18 @@ class AuthService:
         self.repo.create_verification_token(user["email"], token)
         email_service.send_verification_email(user["email"], user["name"], token)
         return {"message": "Verification email resent successfully."}
+
+    def delete_user(self, email: str, password: str) -> dict[str, bool]:
+        user = self.repo.get_user_by_email(email)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not registered.")
+        if not verify_password(password, user["password_hash"]):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+
+        deleted = self.repo.delete_user(email)
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User could not be deleted.")
+        return {"deleted": True}
 
 
 auth_service = AuthService()

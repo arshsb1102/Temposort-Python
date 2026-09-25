@@ -258,6 +258,19 @@ class PostgresStore:
         self.connection.commit()
         return deleted
 
+    def delete_user(self, email: str) -> bool:
+        user = self.get_user_by_email(email)
+        if user is None:
+            return False
+
+        with self._cursor() as cursor:
+            cursor.execute("DELETE FROM verification_tokens WHERE lower(email) = lower(%s)", (email,))
+            cursor.execute("DELETE FROM reminders WHERE lower(user_email) = lower(%s)", (email,))
+            cursor.execute("DELETE FROM tasks WHERE user_id = %s", (user["id"],))
+            cursor.execute("DELETE FROM users WHERE lower(email) = lower(%s)", (email,))
+        self.connection.commit()
+        return True
+
     def create_reminder(self, payload: ReminderCreate) -> dict[str, Any]:
         reminder_id = str(uuid4())
         reminder = {

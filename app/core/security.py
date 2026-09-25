@@ -18,9 +18,13 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, email: str | None = None, name: str | None = None) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {"sub": subject, "exp": expires_at}
+    if email is not None:
+        payload["email"] = email
+    if name is not None:
+        payload["name"] = name
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

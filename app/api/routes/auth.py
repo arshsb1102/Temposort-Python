@@ -41,6 +41,22 @@ def resend_verification(payload: dict[str, str]) -> dict[str, str]:
     return auth_service.resend_verification_email(email)
 
 
+@router.post("/delete-user")
+def delete_user(payload: dict[str, str], user_id: str = Depends(get_current_user_id)) -> dict[str, bool]:
+    email = payload.get("email")
+    password = payload.get("password")
+    if not email or not password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email and password are required.")
+
+    account = auth_service.repo.get_user_by_email(email)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not registered.")
+    if user_id != account["id"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own account.")
+
+    return auth_service.delete_user(email, password)
+
+
 @router.get("/me")
 def get_me(user_id: str = Depends(get_current_user_id)) -> dict[str, str]:
     return {"user_id": user_id}
