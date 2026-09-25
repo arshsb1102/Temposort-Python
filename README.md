@@ -1,143 +1,339 @@
 # TempoSort FastAPI
 
-Production-grade FastAPI backend for the TempoSort platform, designed to mirror the operational pattern of the .NET implementation while remaining portable in a Python runtime.
+TempoSort is a FastAPI backend for a productivity and reminder system. It handles authentication, task management, email verification, and scheduled reminder processing. The project is structured as a backend service with route handlers, service-layer logic, storage abstraction, and environment-driven configuration.
 
-## Project scope
+## What this app does
 
-This backend is built for a real SaaS-style workflow and includes:
+The application supports:
 
-- authentication with JWT
-- email verification and resend flow
-- task lifecycle management
+- user registration
+- email verification before login
+- JWT-based authentication
+- protected authenticated routes
+- task creation, listing, fetching, updating, toggling, and deletion
 - reminder scheduling and processing
-- environment-driven deployment configuration
-- provider abstraction for SMTP and Resend
-- PostgreSQL-backed persistence for production parity with the .NET service
+- PostgreSQL-backed persistence for a production-style setup
+- scheduler-driven reminder checks
 
-## Architectural pattern
+This is a backend-first product app, not a frontend app. The API is the main interface.
 
-The project is organized into distinct layers to keep the backend maintainable and production-friendly:
+## Core business flow
+
+1. A user registers with name, email, and password.
+2. The app creates the user and sends a verification email.
+3. The user verifies their email using the token in the verification link.
+4. The user logs in and receives a JWT access token.
+5. The JWT is required for task and reminder endpoints.
+6. The user can create and manage tasks.
+7. Due reminders are processed by a scheduler and delivered through the configured email channel.
+
+## Architecture
+
+The app is split into small layers:
+
+- `app/api/routes` - HTTP endpoints
+- `app/services` - business logic
+- `app/storage` - persistence implementations
+- `app/core` - configuration and security helpers
+- `app/schemas` - request/response models
+- `app/db.py` - store factory pointing to the active storage backend
+- `app/main.py` - app entry point and startup lifecycle
+
+## Tech stack
+
+- Python 3.12+
+- FastAPI
+- Pydantic
+- PostgreSQL
+- psycopg
+- JWT via PyJWT
+- APScheduler for background reminder processing
+- pytest for API testing
+- python-dotenv for environment configuration
+
+## Project layout
 
 ```bash
 Temposort-Python/
 ├── app/
 │   ├── api/
 │   │   └── routes/
+│   │       ├── auth.py
+│   │       ├── health.py
+│   │       ├── reminders.py
+│   │       └── tasks.py
 │   ├── core/
+│   │   ├── environment.py
+│   │   └── security.py
 │   ├── services/
+│   │   ├── auth_service.py
+│   │   ├── email_service.py
+│   │   ├── reminder_service.py
+│   │   ├── scheduler.py
+│   │   └── task_service.py
 │   ├── storage/
+│   │   ├── postgres_store.py
+│   │   ├── sqlite_store.py
+│   │   └── __init__.py
 │   ├── __init__.py
 │   ├── db.py
 │   ├── main.py
 │   └── schemas.py
 ├── tests/
 │   └── test_app.py
+├── .env
 ├── .env.example
+├── docker-compose.yml
 ├── requirements.txt
+├── pytest.ini
 ├── README.md
 └── .gitignore
 ```
 
-## API surface
+## Configuration
 
-### Authentication
-- `POST /api/v1/auth/register` creates a new user and sends a verification email
-- `POST /api/v1/auth/login` validates credentials and enforces verification
-- `GET /api/v1/auth/verify-email` confirms the token from the email link
-- `POST /api/v1/auth/resend-verification` re-sends verification instructions
+The app reads configuration from environment variables and `.env` files. The main config is in `app/core/environment.py`.
 
-### Tasks
-- `POST /api/v1/tasks` creates a task
-- `GET /api/v1/tasks` lists tasks
-- `GET /api/v1/tasks/{task_id}` fetches one task
-- `PUT /api/v1/tasks/{task_id}` updates a task
-- `PATCH /api/v1/tasks/{task_id}/toggle-complete` toggles completion
-- `DELETE /api/v1/tasks/{task_id}` removes a task
-
-### Reminders
-- `POST /api/v1/reminders` schedules a reminder
-- `GET /api/v1/reminders` lists reminders
-- `POST /api/v1/reminders/process` processes all due reminders
-
-## Production-grade configuration
-
-The service is configured through environment variables instead of hardcoded URLs or secrets.
-
-```bash
-cp .env.example .env
-```
-
-Example values:
+Key variables:
 
 ```env
-APP_ENV=production
-JWT_SECRET=your-production-secret
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/temposort
+APP_NAME=TempoSort FastAPI
+APP_ENV=development
+DEBUG=false
+JWT_SECRET=your-secret-key
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_MINUTES=60
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/temposort
 API_BASE_URL=http://localhost:8000
 FRONTEND_URL=http://localhost:3000
 MAIL_PROVIDER=console
-
-# Production mail setup
-# MAIL_PROVIDER=smtp
-# SMTP_HOST=smtp.yourdomain.com
-# SMTP_PORT=587
-# SMTP_USERNAME=your-user
-# SMTP_PASSWORD=your-password
-# SMTP_FROM_EMAIL=no-reply@yourdomain.com
-# SMTP_FROM_NAME=TempoSort
-# SMTP_ENABLE_SSL=true
-
-# Or use Resend
-# MAIL_PROVIDER=resend
-# RESEND_API_KEY=your_resend_key
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=no-reply@temposort.local
+SMTP_FROM_NAME=TempoSort
+SMTP_ENABLE_SSL=false
+RESEND_API_KEY=
 ```
 
-Important: `MAIL_PROVIDER=console` is the safe default for local development and test environments. When you set a real provider and credentials, the app will deliver through that provider.
+Important:
 
-## Email provider behavior
+- `DATABASE_URL` should point to Postgres in production.
+- `MAIL_PROVIDER=console` is the safe default for local development and tests.
+- Real SMTP or Resend settings are used when configured.
 
-This mirrors the .NET production pattern without making local development brittle:
+## Storage layer
 
-- `MAIL_PROVIDER=smtp`: sends through the configured SMTP endpoint
-- `MAIL_PROVIDER=resend`: sends via the Resend API
-- `MAIL_PROVIDER=console`: queues the message output and avoids connection failures in non-configured environments
+The project supports a storage abstraction through the store object in `app/db.py`.
 
-This prevents accidental crashes when SMTP secrets are not yet configured while still supporting real email delivery in production.
+Current behavior:
 
-## Local startup
+- if `DATABASE_URL` starts with `sqlite`, the app uses `SQLiteStore`
+- otherwise it uses `PostgresStore`
+
+This makes the code usable in local development and production-like environments without changing route logic.
+
+## Data model
+
+### User
+
+Fields include:
+
+- `id`
+- `name`
+- `email`
+- `password_hash`
+- `is_verified`
+- `created_at`
+
+### Task
+
+Fields include:
+
+- `id`
+- `user_id`
+- `title`
+- `description`
+- `due_at`
+- `priority`
+- `is_completed`
+- `created_at`
+- `updated_at`
+
+### Reminder
+
+Fields include:
+
+- `id`
+- `user_email`
+- `title`
+- `message`
+- `channel`
+- `scheduled_for`
+- `sent_at`
+- `is_sent`
+
+## API routes
+
+### Health
+
+- `GET /api/v1/health`
+  - returns app health data
+
+### Auth
+
+- `POST /api/v1/auth/register`
+  - creates a user
+  - sends a verification email
+  - returns a registration response
+
+- `POST /api/v1/auth/login`
+  - validates email and password
+  - rejects unverified users with 403
+  - returns JWT token
+
+- `GET /api/v1/auth/verify-email?token=...`
+  - verifies the email token
+  - marks the user as verified
+
+- `POST /api/v1/auth/resend-verification`
+  - resends the verification email
+
+- `GET /api/v1/auth/me`
+  - returns the current user id from the JWT
+
+### Tasks
+
+- `POST /api/v1/tasks`
+  - creates a task for the authenticated user
+
+- `GET /api/v1/tasks`
+  - lists all tasks for the current user
+
+- `GET /api/v1/tasks/{task_id}`
+  - fetches a single task
+
+- `PUT /api/v1/tasks/{task_id}`
+  - updates a task
+
+- `PATCH /api/v1/tasks/{task_id}/toggle-complete`
+  - toggles `is_completed`
+
+- `DELETE /api/v1/tasks/{task_id}`
+  - deletes the task for the authenticated user
+
+### Reminders
+
+- `POST /api/v1/reminders`
+  - creates a reminder for a user email
+
+- `GET /api/v1/reminders`
+  - lists reminder records
+
+- `POST /api/v1/reminders/process`
+  - processes all due reminders and marks them sent
+
+## Security model
+
+The app uses bearer-token auth.
+
+- `HTTPBearer` is configured in `app/core/security.py`
+- JWT is created with `create_access_token()`
+- routes depend on `get_current_user_id()`
+- auth failures return 401 if token is missing or invalid
+- login for unverified users returns 403
+
+Password hashing is handled with bcrypt, and token verification is done with PyJWT.
+
+## Email and reminder flow
+
+The reminder pipeline is built around these components:
+
+- `EmailService` - builds and stores emails
+- `ReminderService` - checks due reminders and sends email notices
+- `SchedulerService` - runs reminder processing with APScheduler
+
+Reminder processing flow:
+
+1. a reminder is scheduled with a user email and due time
+2. scheduler checks due reminders periodically
+3. matching user is looked up
+4. reminder email is sent
+5. reminder is marked as sent
+
+## Local development
+
+### Prerequisites
+
+- Python
+- pip or uv
+- Docker for Postgres if using the production-style local database
+
+### Setup
 
 ```bash
 cd Temposort-Python
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Note: this project pins `httpx2` in [requirements.txt](requirements.txt) because the FastAPI/Starlette test client stack emits a deprecation warning when the older `httpx` compatibility path is used.
+
+### Start Postgres
+
+```bash
+docker compose up -d postgres
+```
+
+### Start the app
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Open:
+Swagger UI:
 
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
+- http://127.0.0.1:8000/docs
 
-## Production readiness
+ReDoc:
 
-This project is intended to be production-aligned and includes a Postgres-first data layer aligned with the .NET service. It can be extended with:
+- http://127.0.0.1:8000/redoc
 
-- Celery/RQ or APScheduler for reminder jobs
-- Redis for distributed task queues
-- structured logging and Prometheus metrics
-- database migrations and CI verification
-- deployment configuration for Docker/Kubernetes/Railway
+## Testing
 
-## Quality standard
+The app has tests covering:
 
-The backend follows the same operational pattern as the .NET version:
+- health endpoint
+- registration and email verification
+- login enforcement before verification
+- task auth requirements
+- due reminder processing
+- task deletion
 
-- environment-driven configuration
-- explicit provider abstraction
-- kept routes thin and feature-oriented
-- business logic in service layer
-- persisted domain state
-- testable API behavior
+Run tests with:
 
-This is no longer a toy learning project; it is a production-oriented backend foundation designed to mirror the TempoSort service architecture.
+```bash
+uv run pytest -q
+```
+
+## Current status
+
+This project is a working backend foundation for TempoSort. It has the key production traits expected from a SaaS-style API:
+
+- layered architecture
+- JWT auth
+- task lifecycle
+- verification flow
+- reminder processing
+- production-oriented configuration
+- Postgres-ready storage setup
+
+It is not a full deployable SaaS stack by itself yet. Real delivery services, migrations, monitoring, and deployment infrastructure still need to be added as the project expands.
+
+## Practical summary
+
+If you want the short version:
+
+This project is a FastAPI backend for a task-driven productivity platform. It supports user registration, verification, secure login, task management, and reminder automation. It is structured for real-world backend work, uses environment-based configuration, and is designed to run with PostgreSQL in production-oriented environments.
