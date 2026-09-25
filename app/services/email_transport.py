@@ -25,7 +25,7 @@ def send_via_smtp(to_email: str, subject: str, html_body: str) -> dict[str, Any]
             if settings.enable_ssl:
                 server.starttls()
             if settings.smtp_username and settings.smtp_password:
-                server.login(settings.smtp_username, settings.smtp_password)
+                server.login(settings.smtp_username, settings.smtp_password.get_secret_value())
             server.send_message(message)
         return {"provider": "smtp", "to": to_email, "subject": subject, "status": "sent"}
     except (OSError, smtplib.SMTPException, TimeoutError):
@@ -33,14 +33,15 @@ def send_via_smtp(to_email: str, subject: str, html_body: str) -> dict[str, Any]
 
 
 def send_via_resend(to_email: str, subject: str, html_body: str) -> dict[str, Any]:
-    if not settings.resend_api_key:
+    resend_api_key = settings.resend_api_key.get_secret_value()
+    if not resend_api_key:
         return {"provider": "resend", "to": to_email, "subject": subject, "status": "queued", "message": "RESEND_API_KEY not configured"}
 
     try:
         response = httpx.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {settings.resend_api_key}",
+                "Authorization": f"Bearer {resend_api_key}",
                 "Content-Type": "application/json",
             },
             json={

@@ -25,12 +25,14 @@ def create_access_token(subject: str, email: str | None = None, name: str | None
         payload["email"] = email
     if name is not None:
         payload["name"] = name
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    jwt_secret = settings.jwt_secret.get_secret_value()
+    return jwt.encode(payload, jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        jwt_secret = settings.jwt_secret.get_secret_value()
+        return jwt.decode(token, jwt_secret, algorithms=[settings.jwt_algorithm])
     except jwt.ExpiredSignatureError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
