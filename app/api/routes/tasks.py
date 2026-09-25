@@ -30,3 +30,8 @@ def update_task(task_id: str, payload: TaskCreate, user_id: str = Depends(get_cu
 @router.patch("/tasks/{task_id}/toggle-complete", response_model=TaskRead)
 def toggle_task(task_id: str, user_id: str = Depends(get_current_user_id)) -> TaskRead:
     return task_service.toggle_complete(user_id, task_id)
+
+
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: str, user_id: str = Depends(get_current_user_id)) -> dict[str, bool]:
+    return task_service.delete_task(user_id, task_id)

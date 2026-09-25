@@ -32,5 +32,11 @@ class TaskService:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
+    def delete_task(self, user_id: str, task_id: str) -> dict[str, bool]:
+        deleted = self.repo.delete_task_for_user(user_id, task_id)
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        return {"deleted": True}
+
 
 task_service = TaskService()

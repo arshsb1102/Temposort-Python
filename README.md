@@ -1,96 +1,143 @@
-# TempoSort FastAPI Learning Project
+# TempoSort FastAPI
 
-This folder is a beginner-friendly FastAPI version of the TempoSort backend. It is meant to help you learn FastAPI by mirroring the same core ideas from the main C# project: authentication, task management, health checks, and clean API design.
+Production-grade FastAPI backend for the TempoSort platform, designed to mirror the operational pattern of the .NET implementation while remaining portable in a Python runtime.
 
-## Why this exists
+## Project scope
 
-The main TempoSort project is built with ASP.NET Core and .NET services. This Python folder is a simplified learning version that lets you study the same business flow in a lighter framework.
+This backend is built for a real SaaS-style workflow and includes:
 
-The goal is to understand:
+- authentication with JWT
+- email verification and resend flow
+- task lifecycle management
+- reminder scheduling and processing
+- environment-driven deployment configuration
+- provider abstraction for SMTP and Resend
+- PostgreSQL-backed persistence for production parity with the .NET service
 
-- route definitions in FastAPI
-- request/response schemas with Pydantic
-- in-memory persistence for learning
-- auth and task endpoints
-- API testing with pytest
-- how a real API is structured in a simple project
+## Architectural pattern
 
-## Project structure
+The project is organized into distinct layers to keep the backend maintainable and production-friendly:
 
 ```bash
 Temposort-Python/
 ├── app/
+│   ├── api/
+│   │   └── routes/
+│   ├── core/
+│   ├── services/
+│   ├── storage/
 │   ├── __init__.py
 │   ├── db.py
 │   ├── main.py
 │   └── schemas.py
 ├── tests/
 │   └── test_app.py
+├── .env.example
 ├── requirements.txt
 ├── README.md
 └── .gitignore
 ```
 
-## Included endpoints
+## API surface
 
-- `GET /api/v1/health` — service status check
-- `POST /api/v1/auth/register` — create a user
-- `POST /api/v1/auth/login` — demo login flow
-- `POST /api/v1/tasks` — create a task
-- `GET /api/v1/tasks` — list tasks
-- `GET /api/v1/tasks/{task_id}` — fetch one task
-- `PUT /api/v1/tasks/{task_id}` — update a task
-- `PATCH /api/v1/tasks/{task_id}/toggle-complete` — toggle task completion
+### Authentication
+- `POST /api/v1/auth/register` creates a new user and sends a verification email
+- `POST /api/v1/auth/login` validates credentials and enforces verification
+- `GET /api/v1/auth/verify-email` confirms the token from the email link
+- `POST /api/v1/auth/resend-verification` re-sends verification instructions
 
-## Quick start
+### Tasks
+- `POST /api/v1/tasks` creates a task
+- `GET /api/v1/tasks` lists tasks
+- `GET /api/v1/tasks/{task_id}` fetches one task
+- `PUT /api/v1/tasks/{task_id}` updates a task
+- `PATCH /api/v1/tasks/{task_id}/toggle-complete` toggles completion
+- `DELETE /api/v1/tasks/{task_id}` removes a task
+
+### Reminders
+- `POST /api/v1/reminders` schedules a reminder
+- `GET /api/v1/reminders` lists reminders
+- `POST /api/v1/reminders/process` processes all due reminders
+
+## Production-grade configuration
+
+The service is configured through environment variables instead of hardcoded URLs or secrets.
+
+```bash
+cp .env.example .env
+```
+
+Example values:
+
+```env
+APP_ENV=production
+JWT_SECRET=your-production-secret
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/temposort
+API_BASE_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:3000
+MAIL_PROVIDER=console
+
+# Production mail setup
+# MAIL_PROVIDER=smtp
+# SMTP_HOST=smtp.yourdomain.com
+# SMTP_PORT=587
+# SMTP_USERNAME=your-user
+# SMTP_PASSWORD=your-password
+# SMTP_FROM_EMAIL=no-reply@yourdomain.com
+# SMTP_FROM_NAME=TempoSort
+# SMTP_ENABLE_SSL=true
+
+# Or use Resend
+# MAIL_PROVIDER=resend
+# RESEND_API_KEY=your_resend_key
+```
+
+Important: `MAIL_PROVIDER=console` is the safe default for local development and test environments. When you set a real provider and credentials, the app will deliver through that provider.
+
+## Email provider behavior
+
+This mirrors the .NET production pattern without making local development brittle:
+
+- `MAIL_PROVIDER=smtp`: sends through the configured SMTP endpoint
+- `MAIL_PROVIDER=resend`: sends via the Resend API
+- `MAIL_PROVIDER=console`: queues the message output and avoids connection failures in non-configured environments
+
+This prevents accidental crashes when SMTP secrets are not yet configured while still supporting real email delivery in production.
+
+## Local startup
 
 ```bash
 cd Temposort-Python
-
 python3 -m venv .venv
 source .venv/bin/activate
-
 pip install -r requirements.txt
-
 uvicorn app.main:app --reload
 ```
 
-Then open:
+Open:
 
-- `http://127.0.0.1:8000/docs` for Swagger UI
-- `http://127.0.0.1:8000/redoc` for ReDoc
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
 
-## Example request
+## Production readiness
 
-```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/tasks" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Learn FastAPI",
-    "description": "Build the first API draft for TempoSort",
-    "due_at": "2026-10-01T10:00:00Z",
-    "priority": "high"
-  }'
-```
+This project is intended to be production-aligned and includes a Postgres-first data layer aligned with the .NET service. It can be extended with:
 
-## Learning goals
+- Celery/RQ or APScheduler for reminder jobs
+- Redis for distributed task queues
+- structured logging and Prometheus metrics
+- database migrations and CI verification
+- deployment configuration for Docker/Kubernetes/Railway
 
-By working through this project, you will learn:
+## Quality standard
 
-1. How FastAPI apps are organized
-2. How request validation works with Pydantic
-3. How to structure routes by feature
-4. How to model a domain with simple in-memory services
-5. How to test API behavior with pytest
+The backend follows the same operational pattern as the .NET version:
 
-## Next steps
+- environment-driven configuration
+- explicit provider abstraction
+- kept routes thin and feature-oriented
+- business logic in service layer
+- persisted domain state
+- testable API behavior
 
-Once you are comfortable here, the next progression is to add:
-
-- real database integration with SQLAlchemy or SQLModel
-- JWT authentication with `python-jose` or `PyJWT`
-- password hashing with `passlib`
-- background jobs for reminders
-- project structure split into routers, services, and repos
-
-This starter is intentionally simple so you can focus on learning the FastAPI patterns before moving into a production-grade backend.
+This is no longer a toy learning project; it is a production-oriented backend foundation designed to mirror the TempoSort service architecture.

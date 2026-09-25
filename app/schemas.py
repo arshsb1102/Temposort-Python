@@ -15,9 +15,22 @@ class UserLogin(BaseModel):
     password: str = Field(..., min_length=6)
 
 
+class UserRead(BaseModel):
+    id: str
+    name: str
+    email: str
+    is_verified: bool = False
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class VerificationStatus(BaseModel):
+    verified: bool
+    email: str
+    message: str
 
 
 class TaskCreate(BaseModel):
@@ -32,3 +45,22 @@ class TaskRead(TaskCreate):
     is_completed: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class ReminderCreate(BaseModel):
+    user_email: EmailStr
+    title: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=2000)
+    channel: Literal["email", "sms", "push"] = "email"
+    scheduled_for: datetime
+
+
+class ReminderRead(BaseModel):
+    id: str
+    user_email: str
+    title: str
+    message: str
+    channel: str
+    scheduled_for: datetime
+    sent_at: datetime | None = None
+    is_sent: bool = False
