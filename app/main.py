@@ -6,11 +6,13 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.tasks import router as tasks_router
+from app.db.base import init_db
 from app.services.scheduler import scheduler_service
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    await init_db()
     scheduler_service.start()
     try:
         yield

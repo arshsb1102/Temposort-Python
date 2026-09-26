@@ -1,105 +1,90 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
-from app.db.repositories.base import BaseRepository
+from sqlalchemy import select
+
+from app.db.base import AsyncSessionLocal
+from app.db.models import Reminder
 from app.schemas import ReminderCreate, ReminderRead
 
 
-class ReminderRepository(BaseRepository):
-    def create_reminder(self, payload: ReminderCreate) -> dict[str, Any]:
-        reminder_id = __import__("uuid").uuid4().hex
-        reminder = {
-            "id": reminder_id,
-            "user_email": payload.user_email.lower(),
-            "title": payload.title,
-            "message": payload.message,
-            "channel": payload.channel,
-            "scheduled_for": payload.scheduled_for,
-            "sent_at": None,
-            "is_sent": False,
-        }
-        with self.session.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO reminders (id, user_email, title, message, channel, scheduled_for, sent_at, is_sent)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    reminder["id"],
-                    reminder["user_email"],
-                    reminder["title"],
-                    reminder["message"],
-                    reminder["channel"],
-                    reminder["scheduled_for"],
-                    None,
-                    False,
-                ),
+class ReminderRepository:
+    def __init__(self, session_factory=AsyncSessionLocal) -> None:
+        self.session_factory = session_factory
+
+    @staticmethod
+    def _to_read(reminder: Reminder) -> ReminderRead:
+        return ReminderRead(
+            id=reminder.id,
+            user_email=reminder.user_email,
+            title=reminder.title,
+            message=reminder.message,
+            channel=reminder.channel,
+            scheduled_for=reminder.scheduled_for,
+            sent_at=reminder.sent_at,
+            is_sent=reminder.is_sent,
+        )
+
+    async def create_reminder(self, payload: ReminderCreate) -> dict[str, Any]:
+        async with self.session_factory() as session:
+            reminder = Reminder(
+                user_email=payload.user_email.lower(),
+                title=payload.title,
+                message=payload.message,
+                channel=payload.channel,
+                scheduled_for=payload.scheduled_for,
+                sent_at=None,
+                is_sent=False,
             )
-        self.session.connection.commit()
-        return reminder
+            session.add(reminder)
+            await session.commit()
+            await session.refresh(reminder)
+            return {
+                "id": reminder.id,
+                "user_email": reminder.user_email,
+                "title": reminder.title,
+                "message": reminder.message,
+                "channel": reminder.channel,
+                "scheduled_for": reminder.scheduled_for,
+                "sent_at": reminder.sent_at,
+                "is_sent": reminder.is_sent,
+            }
 
-    async def async_create_reminder(self, payload: ReminderCreate) -> dict[str, Any]:
-        return await asyncio.to_thread(self.create_reminder, payload)
+    async def list_reminders(self) -> list[ReminderRead]:
+        async with self.session_factory() as session:
+            result = await session.execute(select(Reminder).order_by(Reminder.scheduled_for.asc()))
+            reminders = result.scalars().all()
+            return [self._to_read(reminder) for reminder in reminders]
 
-    def list_reminders(self) -> list[ReminderRead]:
-        with self.session.cursor() as cursor:
-            cursor.execute("SELECT * FROM reminders ORDER BY scheduled_for ASC")
-            rows = cursor.fetchall()
-        reminders: list[ReminderRead] = []
-        for row in rows:
-            reminders.append(
-                ReminderRead(
-                    id=row["id"],
-                    user_email=row["user_email"],
-                    title=row["title"],
-                    message=row["message"],
-                    channel=row["channel"],
-                    scheduled_for=self._parse_datetime_value(row["scheduled_for"]) or datetime.now(timezone.utc),
-                    sent_at=self._parse_datetime_value(row.get("sent_at")),
-                    is_sent=bool(row["is_sent"]),
-                )
+    async def list_due_reminders(self, now: datetime) -> list[dict[str, Any]]:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(Reminder).where(Reminder.is_sent.is_(False), Reminder.scheduled_for <= now).order_by(Reminder.scheduled_for.asc())
             )
-        return reminders
-
-    async def async_list_reminders(self) -> list[ReminderRead]:
-        return await asyncio.to_thread(self.list_reminders)
-
-    def list_due_reminders(self, now: datetime) -> list[dict[str, Any]]:
-        with self.session.cursor() as cursor:
-            cursor.execute(
-                "SELECT * FROM reminders WHERE is_sent = FALSE AND scheduled_for <= %s ORDER BY scheduled_for ASC",
-                (now,),
-            )
-            rows = cursor.fetchall()
-        reminders: list[dict[str, Any]] = []
-        for row in rows:
-            reminders.append(
+            reminders = result.scalars().all()
+            return [
                 {
-                    "id": row["id"],
-                    "user_email": row["user_email"],
-                    "title": row["title"],
-                    "message": row["message"],
-                    "channel": row["channel"],
-                    "scheduled_for": self._parse_datetime_value(row["scheduled_for"]) or now,
-                    "sent_at": self._parse_datetime_value(row.get("sent_at")),
-                    "is_sent": bool(row["is_sent"]),
+                    "id": reminder.id,
+                    "user_email": reminder.user_email,
+                    "title": reminder.title,
+                    "message": reminder.message,
+                    "channel": reminder.channel,
+                    "scheduled_for": reminder.scheduled_for,
+                    "sent_at": reminder.sent_at,
+                    "is_sent": reminder.is_sent,
                 }
-            )
-        return reminders
+                for reminder in reminders
+            ]
 
-    async def async_list_due_reminders(self, now: datetime) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(self.list_due_reminders, now)
+    async def mark_reminder_sent(self, reminder_id: str) -> None:
+        async with self.session_factory() as session:
+            result = await session.execute(select(Reminder).where(Reminder.id == reminder_id))
+            reminder = result.scalar_one_or_none()
+            if reminder is None:
+                return
 
-    def mark_reminder_sent(self, reminder_id: str) -> None:
-        with self.session.cursor() as cursor:
-            cursor.execute(
-                "UPDATE reminders SET sent_at = %s, is_sent = TRUE WHERE id = %s",
-                (datetime.now(timezone.utc), reminder_id),
-            )
-        self.session.connection.commit()
-
-    async def async_mark_reminder_sent(self, reminder_id: str) -> None:
-        await asyncio.to_thread(self.mark_reminder_sent, reminder_id)
+            reminder.sent_at = datetime.now(timezone.utc)
+            reminder.is_sent = True
+            await session.commit()

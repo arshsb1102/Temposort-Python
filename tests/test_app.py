@@ -1,3 +1,4 @@
+import asyncio
 import smtplib
 from datetime import datetime, timedelta, timezone
 
@@ -30,7 +31,7 @@ def test_versioned_v1_modules_are_available():
 
 
 def setup_function() -> None:
-    store.clear()
+    asyncio.run(store.clear())
     email_service.clear_history()
 
 

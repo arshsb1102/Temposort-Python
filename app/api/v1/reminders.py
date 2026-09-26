@@ -15,7 +15,7 @@ async def create_reminder(payload: ReminderCreate) -> ReminderRead:
 
 @router.get("/reminders", response_model=list[ReminderRead])
 async def list_reminders() -> list[ReminderRead]:
-    return reminder_service.repo.list_reminders()
+    return await reminder_service.list_reminders()
 
 
 @router.post("/reminders/process")

@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
-from app.db.session import DatabaseSession
+from app.db.base import AsyncSessionLocal
 
 
 class BaseRepository:
-    def __init__(self, session: DatabaseSession) -> None:
-        self.session = session
+    def __init__(self, session_factory=AsyncSessionLocal) -> None:
+        self.session_factory = session_factory
 
-    def _row_to_dict(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
-        if row is None:
-            return None
-        return dict(row)
-
-    def _parse_datetime_value(self, value: Any) -> datetime | None:
+    @staticmethod
+    def parse_datetime(value: Any) -> datetime | None:
         if value is None:
             return None
         if isinstance(value, datetime):
