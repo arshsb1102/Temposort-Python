@@ -9,16 +9,16 @@ router = APIRouter(prefix="/api/v1", tags=["reminders"])
 
 
 @router.post("/reminders", response_model=ReminderRead, status_code=status.HTTP_201_CREATED)
-def create_reminder(payload: ReminderCreate) -> ReminderRead:
-    return reminder_service.create_reminder(payload)
+async def create_reminder(payload: ReminderCreate) -> ReminderRead:
+    return await reminder_service.create_reminder(payload)
 
 
 @router.get("/reminders", response_model=list[ReminderRead])
-def list_reminders() -> list[ReminderRead]:
+async def list_reminders() -> list[ReminderRead]:
     return reminder_service.repo.list_reminders()
 
 
 @router.post("/reminders/process")
-def process_due_reminders() -> dict[str, int | str]:
-    processed = reminder_service.process_due_reminders()
+async def process_due_reminders() -> dict[str, int | str]:
+    processed = await reminder_service.process_due_reminders()
     return {"processed": processed, "message": "Due reminders processed successfully."}
