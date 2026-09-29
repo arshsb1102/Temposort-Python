@@ -1,29 +1,38 @@
 from __future__ import annotations
 
-from celery import Task
+import asyncio
 
+from celery import Task
+from redis.exceptions import RedisError
+from sqlalchemy.exc import OperationalError
+
+from app.db.base import engine
 from app.services.celery_app import celery_app
 from app.services.reminder_service import reminder_service
+from app.services.email_transport import RetryableEmailDeliveryError
+import app.services.telemetry
+from app.services.telemetry import configure_worker_tracing
+
+configure_worker_tracing()
 
 
 class ReminderDigestTask(Task):
-    autoretry_for = (Exception,)
-    max_retries = 5
-    default_retry_delay = 30
-    retry_backoff = True
+    autoretry_for = (RetryableEmailDeliveryError, OperationalError, RedisError)
+    max_retries = 8
+    retry_backoff = 5
     retry_backoff_max = 600
     retry_jitter = True
 
 
-@celery_app.task(bind=True, base=ReminderDigestTask, name="daily_reminder_digest")
-def process_due_reminders_task(self) -> int:
-    import asyncio
+@celery_app.task(base=ReminderDigestTask, name="app.services.tasks.process_due_reminders_task")
+def process_due_reminders_task(user_email: str | None = None) -> int:
+    async def process() -> int:
+        try:
+            return await reminder_service.process_due_reminders(user_email)
+        finally:
+            await engine.dispose()
 
-    try:
-        return asyncio.run(reminder_service.process_due_reminders())
-    except Exception:
-        self.retry(exc=Exception(), countdown=30, max_retries=5)
-        raise
+    return asyncio.run(process())
 
 
 __all__ = ["process_due_reminders_task"]

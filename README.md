@@ -13,7 +13,7 @@ The application supports:
 - task creation, listing, fetching, updating, toggling, and deletion
 - reminder scheduling and processing
 - PostgreSQL-backed persistence for a production-style setup
-- scheduler-driven reminder checks
+- Redis-backed Celery queue and daily reminder processing
 
 This is a backend-first product app, not a frontend app. The API is the main interface.
 
@@ -25,18 +25,18 @@ This is a backend-first product app, not a frontend app. The API is the main int
 4. The user logs in and receives a JWT access token.
 5. The JWT is required for task and reminder endpoints.
 6. The user can create and manage tasks.
-7. Due reminders are processed by a scheduler and delivered through the configured email channel.
+7. Due reminders are queued by Celery Beat and delivered by a Celery worker through the configured email channel.
 
 ## Architecture
 
 The app is split into small layers:
 
-- `app/api/routes` - HTTP endpoints
+- `app/api/v1` - versioned HTTP endpoints
 - `app/services` - business logic
 - `app/storage` - persistence implementations
 - `app/core` - configuration and security helpers
 - `app/schemas` - request/response models
-- `app/db.py` - store factory pointing to the active storage backend
+- `app/db` - SQLAlchemy models, sessions, and repositories
 - `app/main.py` - app entry point and startup lifecycle
 
 ## Tech stack
@@ -47,7 +47,7 @@ The app is split into small layers:
 - PostgreSQL
 - psycopg
 - JWT via PyJWT
-- APScheduler for background reminder processing
+- Celery and Redis for background reminder processing
 - pytest for API testing
 - python-dotenv for environment configuration
 
@@ -124,6 +124,15 @@ SMTP_FROM_EMAIL=no-reply@temposort.local
 SMTP_FROM_NAME=TempoSort
 SMTP_ENABLE_SSL=false
 RESEND_API_KEY=
+REDIS_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND_URL=redis://localhost:6379/1
+OTEL_ENABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+OTEL_SERVICE_NAME=temposort-api
+METRICS_ENABLED=true
+REMINDER_DIGEST_ENABLED=true
+REMINDER_DIGEST_HOUR=9
+REMINDER_DIGEST_MINUTE=0
 ```
 
 Important:
@@ -235,13 +244,13 @@ Fields include:
 ### Reminders
 
 - `POST /api/v1/reminders`
-  - creates a reminder for a user email
+  - creates a reminder for the authenticated user
 
 - `GET /api/v1/reminders`
-  - lists reminder records
+  - lists only the authenticated user's reminders
 
 - `POST /api/v1/reminders/process`
-  - processes all due reminders and marks them sent
+  - queues processing for the authenticated user's due reminders and returns `202 Accepted` with a Celery task ID
 
 ## Security model
 
@@ -261,15 +270,19 @@ The reminder pipeline is built around these components:
 
 - `EmailService` - builds and stores emails
 - `ReminderService` - checks due reminders and sends email notices
-- `SchedulerService` - runs reminder processing with APScheduler
+- Celery Beat - queues the configured daily reminder scan
+- Celery worker - processes reminders from Redis
 
 Reminder processing flow:
 
 1. a reminder is scheduled with a user email and due time
-2. scheduler checks due reminders periodically
-3. matching user is looked up
-4. reminder email is sent
-5. reminder is marked as sent
+2. Celery Beat queues the daily scan at the configured time
+3. a worker checks due reminders
+4. matching user is looked up
+5. reminder email is sent
+6. reminder is marked as sent only after the provider confirms delivery
+
+Reminder processing uses an expiring, token-owned Redis lock to reduce concurrent duplicate sends. Delivery is at-least-once: a process crash after an email provider accepts a message but before PostgreSQL records it as sent can still result in a duplicate, especially with SMTP.
 
 ## Local development
 
@@ -288,19 +301,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Note: this project pins `httpx2` in [requirements.txt](requirements.txt) because the FastAPI/Starlette test client stack emits a deprecation warning when the older `httpx` compatibility path is used.
-
-### Start Postgres
+### Start the full local stack
 
 ```bash
-docker compose up -d postgres
+docker compose up -d --build
 ```
 
-### Start the app
+This starts PostgreSQL, Redis, an Alembic migration job, FastAPI, a Celery worker, and Celery Beat. `.env` is passed to containers for local provider settings but excluded from the Docker image build context. Set up `.env` from `.env.example` first if needed.
 
-```bash
-uvicorn app.main:app --reload
-```
+See [Demo.md](Demo.md) for a reproducible curl walkthrough, including checking a created task directly in PostgreSQL.
 
 Swagger UI:
 
@@ -312,34 +321,65 @@ ReDoc:
 
 ## Testing
 
+The tests use a dedicated `temposort_test` PostgreSQL database so test cleanup cannot target the configured application database. Set `TEST_DATABASE_URL` to override it. Redis and Postgres must be running locally.
+
 The app has tests covering:
 
 - health endpoint
 - registration and email verification
 - login enforcement before verification
 - task auth requirements
-- due reminder processing
+- due reminder processing and delivery failures
+- queue-only request behavior and broker errors
+- Redis lock ownership and queue observability
+- task idempotency and bounded retry behavior
+- provider-specific email retry classification and delivery metrics
+- production-secret validation and ownership cascades
 - task deletion
 
 Run tests with:
 
 ```bash
-uv run pytest -q
+.venv/bin/pytest -q
 ```
+
+Run a read-only concurrent health-endpoint probe (this measures HTTP/Redis/Celery health overhead, not task-write throughput):
+
+```bash
+.venv/bin/python scripts/load_test_health.py --requests 100 --concurrency 10
+```
+
+For authenticated task-write measurements, first obtain a bearer token using [Demo.md](Demo.md), then run:
+
+```bash
+DEMO_ACCESS_TOKEN="$ACCESS_TOKEN" .venv/bin/python scripts/load_test_tasks.py --requests 100 --concurrency 10
+```
+
+This probe uses a unique idempotency key per create and deletes successfully created probe tasks afterward.
+
+### Tracing and dashboards
+
+Set a non-default `GRAFANA_ADMIN_PASSWORD` in `.env` and start the opt-in observability stack:
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up -d --build
+```
+
+Grafana is available at http://127.0.0.1:3000, Prometheus at http://127.0.0.1:9090, and Tempo at http://127.0.0.1:3200. Grafana provisions **TempoSort Production Overview** and **TempoSort Queue and Delivery Operations**. Trace collection is enabled only when `OTEL_ENABLED=true` and the observability profile is running.
 
 ## Current status
 
-This project is a working backend foundation for TempoSort. It has the key production traits expected from a SaaS-style API:
+This project provides a production-oriented local/staging stack for TempoSort. It has:
 
 - layered architecture
 - JWT auth
 - task lifecycle
 - verification flow
-- reminder processing
+- Redis-backed Celery reminder processing
 - production-oriented configuration
 - Postgres-ready storage setup
 
-It is not a full deployable SaaS stack by itself yet. Real delivery services, migrations, monitoring, and deployment infrastructure still need to be added as the project expands.
+Before production deployment, replace local Compose passwords with managed secrets, use TLS/private networking and backups for Postgres/Redis, configure non-default Grafana credentials, set alert routing and retention, and run migrations through deployment automation. Resend idempotency protects provider retries; SMTP cannot provide exactly-once delivery across a process crash. Load figures in [Demo.md](Demo.md) are local-machine measurements, not a production capacity guarantee.
 
 ## Practical summary
 

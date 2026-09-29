@@ -43,11 +43,18 @@ class EmailService:
         payload["delivery"] = result
         return payload
 
-    def send_reminder_email(self, to: str, subject: str, message: str, name: str | None = None) -> dict[str, Any]:
+    def send_reminder_email(
+        self,
+        to: str,
+        subject: str,
+        message: str,
+        name: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         recipient_name = name or "there"
         html = f"<p>Hi {recipient_name},</p><p>{message}</p>"
         body = f"Hi {recipient_name},\n\n{message}"
-        result = send_email_message(to, subject, html)
+        result = send_email_message(to, subject, html, idempotency_key)
         payload = self.send_email(to=to, subject=subject, body=body, html=html)
         payload["delivery"] = result
         return payload

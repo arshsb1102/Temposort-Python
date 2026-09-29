@@ -8,7 +8,7 @@ class ReminderCreate(BaseModel):
     user_email: EmailStr
     title: str = Field(..., min_length=1, max_length=200)
     message: str = Field(..., min_length=1, max_length=2000)
-    channel: Literal["email", "sms", "push"] = "email"
+    channel: Literal["email"] = "email"
     scheduled_for: datetime
 
 

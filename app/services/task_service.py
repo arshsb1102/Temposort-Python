@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 
-from app.db.repositories.task_repository import TaskRepository
+from app.db.repositories.task_repository import IdempotencyKeyConflict, TaskRepository
 from app.schemas import TaskCreate, TaskRead
 
 
@@ -8,8 +8,16 @@ class TaskService:
     def __init__(self) -> None:
         self.repo = TaskRepository()
 
-    async def create_task(self, user_id: str, payload: TaskCreate) -> TaskRead:
-        return await self.repo.create_task(user_id, payload)
+    async def create_task(
+        self,
+        user_id: str,
+        payload: TaskCreate,
+        idempotency_key: str | None = None,
+    ) -> TaskRead:
+        try:
+            return await self.repo.create_task(user_id, payload, idempotency_key)
+        except IdempotencyKeyConflict as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     async def list_tasks(self, user_id: str) -> list[TaskRead]:
         return await self.repo.list_tasks_for_user(user_id)

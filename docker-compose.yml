@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -32,36 +32,152 @@ services:
       timeout: 5s
       retries: 5
 
+  init-db:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/temposort
+    command: alembic upgrade head
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/temposort
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAME: temposort-api
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
   worker:
     build: .
     container_name: temposort-worker
-    command: celery -A app.services.celery_app worker --loglevel=info
+    env_file: .env
+    command: sh -c "rm -rf /tmp/prometheus && mkdir -p /tmp/prometheus && celery -A app.services.celery_app:celery_app worker --loglevel=info --concurrency=2 --queues=temposort"
     restart: unless-stopped
     environment:
       PYTHONPATH: /app
       REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/temposort
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAME: temposort-worker
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
+      WORKER_METRICS_PORT: 9100
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
     depends_on:
-      postgres:
-        condition: service_healthy
+      init-db:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
   beat:
     build: .
     container_name: temposort-beat
-    command: celery -A app.services.celery_app beat --loglevel=info
+    env_file: .env
+    command: celery -A app.services.celery_app:celery_app beat --loglevel=info --schedule=/var/lib/celery/celerybeat-schedule
     restart: unless-stopped
     environment:
       PYTHONPATH: /app
       REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/temposort
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAME: temposort-beat
     depends_on:
-      postgres:
-        condition: service_healthy
+      init-db:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
+    volumes:
+      - beat_data:/var/lib/celery
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    profiles: [observability]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - tempo
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    profiles: [observability]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-TempoSort-Local-Only-2026!}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
 
 volumes:
   postgres_data:
   redis_data:
+  tempo_data:
+  prometheus_data:
+  grafana_data:
+  beat_data:

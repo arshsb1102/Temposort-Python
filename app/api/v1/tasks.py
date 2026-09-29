@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, status
 
 from app.core.security import get_current_user_id
 from app.schemas import TaskCreate, TaskRead
@@ -8,8 +8,12 @@ router = APIRouter(prefix="/api/v1", tags=["tasks"])
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-async def create_task(payload: TaskCreate, user_id: str = Depends(get_current_user_id)) -> TaskRead:
-    return await task_service.create_task(user_id, payload)
+async def create_task(
+    payload: TaskCreate,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
+) -> TaskRead:
+    return await task_service.create_task(user_id, payload, idempotency_key)
 
 
 @router.get("/tasks", response_model=list[TaskRead])

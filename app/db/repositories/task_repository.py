@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.base import AsyncSessionLocal
 from app.db.models import Task
 from app.schemas import TaskCreate, TaskRead
+
+
+class IdempotencyKeyConflict(ValueError):
+    pass
 
 
 class TaskRepository:
@@ -26,20 +33,54 @@ class TaskRepository:
             updated_at=task.updated_at,
         )
 
-    async def create_task(self, user_id: str, payload: TaskCreate) -> TaskRead:
+    async def create_task(
+        self,
+        user_id: str,
+        payload: TaskCreate,
+        idempotency_key: str | None = None,
+    ) -> TaskRead:
+        request_hash = hashlib.sha256(
+            json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
         async with self.session_factory() as session:
+            if idempotency_key:
+                existing = await session.scalar(
+                    select(Task).where(Task.user_id == user_id, Task.idempotency_key == idempotency_key)
+                )
+                if existing is not None:
+                    if existing.idempotency_hash != request_hash:
+                        raise IdempotencyKeyConflict("Idempotency-Key was already used with a different request body")
+                    return self._to_read(existing)
+
             task = Task(
                 user_id=user_id,
                 title=payload.title,
                 description=payload.description,
                 due_at=payload.due_at,
                 priority=payload.priority,
+                idempotency_key=idempotency_key,
+                idempotency_hash=request_hash if idempotency_key else None,
                 is_completed=False,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
             session.add(task)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                if not idempotency_key:
+                    raise
+                existing = await session.scalar(
+                    select(Task).where(Task.user_id == user_id, Task.idempotency_key == idempotency_key)
+                )
+                if existing is None:
+                    raise
+                if existing.idempotency_hash != request_hash:
+                    raise IdempotencyKeyConflict(
+                        "Idempotency-Key was already used with a different request body"
+                    )
+                return self._to_read(existing)
             await session.refresh(task)
             return self._to_read(task)
 

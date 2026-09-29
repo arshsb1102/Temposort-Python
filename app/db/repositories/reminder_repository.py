@@ -52,17 +52,25 @@ class ReminderRepository:
                 "is_sent": reminder.is_sent,
             }
 
-    async def list_reminders(self) -> list[ReminderRead]:
+    async def list_reminders(self, user_email: str) -> list[ReminderRead]:
         async with self.session_factory() as session:
-            result = await session.execute(select(Reminder).order_by(Reminder.scheduled_for.asc()))
+            result = await session.execute(
+                select(Reminder)
+                .where(Reminder.user_email == user_email.lower())
+                .order_by(Reminder.scheduled_for.asc())
+            )
             reminders = result.scalars().all()
             return [self._to_read(reminder) for reminder in reminders]
 
-    async def list_due_reminders(self, now: datetime) -> list[dict[str, Any]]:
+    async def list_due_reminders(self, now: datetime, user_email: str | None = None) -> list[dict[str, Any]]:
         async with self.session_factory() as session:
-            result = await session.execute(
-                select(Reminder).where(Reminder.is_sent.is_(False), Reminder.scheduled_for <= now).order_by(Reminder.scheduled_for.asc())
+            due_query = select(Reminder).where(
+                Reminder.is_sent.is_(False),
+                Reminder.scheduled_for <= now,
             )
+            if user_email is not None:
+                due_query = due_query.where(Reminder.user_email == user_email.lower())
+            result = await session.execute(due_query.order_by(Reminder.scheduled_for.asc()))
             reminders = result.scalars().all()
             return [
                 {

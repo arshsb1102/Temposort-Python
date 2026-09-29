@@ -73,11 +73,11 @@ class PostgresStore:
     async def create_reminder(self, payload: ReminderCreate) -> dict[str, Any]:
         return await self.reminders.create_reminder(payload)
 
-    async def list_reminders(self) -> list[ReminderRead]:
-        return await self.reminders.list_reminders()
+    async def list_reminders(self, user_email: str) -> list[ReminderRead]:
+        return await self.reminders.list_reminders(user_email)
 
-    async def list_due_reminders(self, now: datetime) -> list[dict[str, Any]]:
-        return await self.reminders.list_due_reminders(now)
+    async def list_due_reminders(self, now: datetime, user_email: str | None = None) -> list[dict[str, Any]]:
+        return await self.reminders.list_due_reminders(now, user_email)
 
     async def mark_reminder_sent(self, reminder_id: str) -> None:
         await self.reminders.mark_reminder_sent(reminder_id)
