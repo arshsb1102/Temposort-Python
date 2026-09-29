@@ -30,6 +30,24 @@ def test_versioned_v1_modules_are_available():
     assert v1_reminders is not None
 
 
+def test_redis_settings_are_configurable():
+    from app.core.environment import settings
+
+    assert hasattr(settings, "redis_url")
+    assert settings.redis_url.startswith("redis://")
+
+
+def test_daily_digest_settings_are_configurable():
+    from app.core.environment import settings
+
+    assert hasattr(settings, "reminder_digest_enabled")
+    assert hasattr(settings, "reminder_digest_hour")
+    assert hasattr(settings, "reminder_digest_minute")
+    assert settings.reminder_digest_enabled is True
+    assert 0 <= settings.reminder_digest_hour <= 23
+    assert 0 <= settings.reminder_digest_minute <= 59
+
+
 def setup_function() -> None:
     asyncio.run(store.clear())
     email_service.clear_history()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -48,6 +47,15 @@ class ReminderService:
             processed += 1
 
         return processed
+
+    async def enqueue_due_reminder_processing(self) -> str | None:
+        try:
+            from app.services.celery_app import process_due_reminders_task
+
+            result = process_due_reminders_task.delay()
+            return result.id
+        except Exception:
+            return None
 
 
 reminder_service = ReminderService()

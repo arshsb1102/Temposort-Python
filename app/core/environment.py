@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     database_url: str = "postgresql://postgres:postgres@localhost:5433/temposort"
+    redis_url: str = "redis://localhost:6379/0"
+    redis_cache_ttl_seconds: int = 300
+    reminder_digest_enabled: bool = True
+    reminder_digest_hour: int = 9
+    reminder_digest_minute: int = 0
     frontend_url: str = "http://localhost:3000"
     api_base_url: str = "http://localhost:8000"
     mail_provider: str = "console"

@@ -20,5 +20,20 @@ async def list_reminders() -> list[ReminderRead]:
 
 @router.post("/reminders/process")
 async def process_due_reminders() -> dict[str, int | str]:
+    queue_task_id = await reminder_service.enqueue_due_reminder_processing()
     processed = await reminder_service.process_due_reminders()
-    return {"processed": processed, "message": "Due reminders processed successfully."}
+    payload: dict[str, int | str] = {
+        "processed": processed,
+        "message": "Due reminders processed successfully.",
+    }
+    if queue_task_id:
+        payload["task_id"] = queue_task_id
+    return payload
+
+
+@router.post("/reminders/queue-processing")
+async def queue_due_reminders() -> dict[str, str]:
+    task_id = await reminder_service.enqueue_due_reminder_processing()
+    if not task_id:
+        return {"status": "fallback", "message": "Celery broker unavailable; task was not queued."}
+    return {"status": "queued", "task_id": task_id}

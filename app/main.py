@@ -7,17 +7,20 @@ from app.api.v1.health import router as health_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.tasks import router as tasks_router
 from app.db.base import init_db
-from app.services.scheduler import scheduler_service
+from app.services.redis_service import redis_service
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
-    scheduler_service.start()
+    try:
+        await redis_service.ping_async()
+    except Exception:
+        pass
     try:
         yield
     finally:
-        scheduler_service.shutdown()
+        await redis_service.close()
 
 
 app = FastAPI(
