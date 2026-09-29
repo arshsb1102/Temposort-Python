@@ -8,6 +8,7 @@ from app.db import store
 from app.db.repositories.user_repository import UserRepository
 from app.schemas import ReminderCreate, ReminderRead
 from app.services.email_service import email_service
+from app.services.redis_service import redis_service
 
 
 class ReminderService:
@@ -32,19 +33,32 @@ class ReminderService:
 
         processed = 0
         for reminder in due_reminders:
-            user = await self.user_repo.get_user_by_email(reminder["user_email"])
-            if user is None:
-                await self.repo.reminders.mark_reminder_sent(reminder["id"])
+            reminder_id = reminder["id"]
+            lock_key = f"reminder:send:{reminder_id}"
+            if not redis_service.acquire_lock(lock_key, ttl_seconds=60 * 60 * 24):
                 continue
 
-            email_service.send_reminder_email(
-                to=user["email"],
-                subject=reminder["title"],
-                message=reminder["message"],
-                name=user["name"],
-            )
-            await self.repo.reminders.mark_reminder_sent(reminder["id"])
-            processed += 1
+            try:
+                user = await self.user_repo.get_user_by_email(reminder["user_email"])
+                if user is None:
+                    await self.repo.reminders.mark_reminder_sent(reminder_id)
+                    continue
+
+                delivery = email_service.send_reminder_email(
+                    to=user["email"],
+                    subject=reminder["title"],
+                    message=reminder["message"],
+                    name=user["name"],
+                )
+                if delivery.get("delivery", {}).get("status") == "failed":
+                    raise RuntimeError(f"Failed to deliver reminder {reminder_id}")
+
+                await self.repo.reminders.mark_reminder_sent(reminder_id)
+                processed += 1
+            finally:
+                if not redis_service.client.get(lock_key):
+                    continue
+                redis_service.release_lock(lock_key)
 
         return processed
 

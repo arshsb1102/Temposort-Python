@@ -14,10 +14,19 @@ class RedisService:
         self.client = redis.Redis.from_url(self.url, decode_responses=True, socket_connect_timeout=2)
 
     def ping(self) -> bool:
-        return bool(self.client.ping())
+        try:
+            return bool(self.client.ping())
+        except redis.RedisError:
+            return False
 
     async def ping_async(self) -> bool:
         return self.ping()
+
+    def acquire_lock(self, key: str, ttl_seconds: int = 3600) -> bool:
+        return bool(self.client.set(key, "1", nx=True, ex=ttl_seconds))
+
+    def release_lock(self, key: str) -> bool:
+        return bool(self.client.delete(key))
 
     def get_json(self, key: str, default: Any = None) -> Any:
         value = self.client.get(key)

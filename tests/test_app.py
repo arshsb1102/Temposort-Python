@@ -48,6 +48,24 @@ def test_daily_digest_settings_are_configurable():
     assert 0 <= settings.reminder_digest_minute <= 59
 
 
+def test_reminder_processing_is_idempotent_when_lock_is_not_available(monkeypatch):
+    from app.services.reminder_service import reminder_service
+    from app.services.redis_service import redis_service
+
+    monkeypatch.setattr(redis_service, "acquire_lock", lambda *args, **kwargs: False)
+    monkeypatch.setattr(reminder_service.repo.reminders, "list_due_reminders", lambda *args, **kwargs: [])
+
+    result = asyncio.run(reminder_service.process_due_reminders())
+    assert result == 0
+
+
+def test_celery_retry_settings_are_enabled():
+    from app.services.celery_app import celery_app
+
+    assert celery_app.conf.get("task_retry_backoff") is True
+    assert celery_app.conf.get("task_retry_backoff_max") == 600
+
+
 def setup_function() -> None:
     asyncio.run(store.clear())
     email_service.clear_history()

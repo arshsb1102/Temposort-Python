@@ -19,6 +19,13 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     broker_connection_retry_on_startup=True,
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_store_errors_even_if_ignored=True,
+    worker_prefetch_multiplier=1,
+    task_retry_backoff=True,
+    task_retry_backoff_max=600,
+    task_retry_jitter=True,
     beat_schedule={
         "daily-reminder-digest": {
             "task": "app.services.tasks.process_due_reminders_task",
