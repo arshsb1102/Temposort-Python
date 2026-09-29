@@ -336,3 +336,21 @@ def test_smtp_failures_are_exposed_in_result(monkeypatch):
     assert result["status"] == "failed"
     assert "error" in result
     assert "bad credentials" in result["error"].lower()
+
+
+def test_resend_failures_are_exposed_in_result(monkeypatch):
+    from app.services import email_transport
+
+    class FakeResponse:
+        text = "bad gateway"
+
+    def fake_post(*args, **kwargs):
+        raise httpx.HTTPError("network error")
+
+    monkeypatch.setattr(email_transport, "settings", type("S", (), {"resend_api_key": type("P", (), {"get_secret_value": lambda self: "abc123"})(), "mail_provider": "resend"})())
+    monkeypatch.setattr(email_transport.httpx, "post", fake_post)
+
+    result = email_transport.send_via_resend("to@example.com", "Subject", "<p>Hi</p>")
+
+    assert result["status"] == "failed"
+    assert "network error" in result["error"]

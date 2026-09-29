@@ -50,6 +50,7 @@ def send_via_resend(to_email: str, subject: str, html_body: str) -> dict[str, An
     if not resend_api_key:
         return {"provider": "resend", "to": to_email, "subject": subject, "status": "queued", "message": "RESEND_API_KEY not configured"}
 
+    response = None
     try:
         response = httpx.post(
             "https://api.resend.com/emails",
@@ -68,11 +69,7 @@ def send_via_resend(to_email: str, subject: str, html_body: str) -> dict[str, An
         response.raise_for_status()
         return {"provider": "resend", "to": to_email, "subject": subject, "status": "sent", "payload": response.json()}
     except httpx.HTTPError as exc:
-        body = ""
-        try:
-            body = response.text
-        except Exception:  # pragma: no cover - defensive fallback
-            body = ""
+        body = response.text if response is not None else ""
         logger.exception("Resend delivery failed")
         return {
             "provider": "resend",

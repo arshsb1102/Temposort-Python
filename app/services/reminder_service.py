@@ -56,9 +56,8 @@ class ReminderService:
                 await self.repo.reminders.mark_reminder_sent(reminder_id)
                 processed += 1
             finally:
-                if not redis_service.client.get(lock_key):
-                    continue
-                redis_service.release_lock(lock_key)
+                if redis_service.client.get(lock_key) is not None:
+                    redis_service.release_lock(lock_key)
 
         return processed
 
